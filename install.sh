@@ -277,20 +277,6 @@ main() {
     prepare_install_dir
     download_electron_runtime
     
-    # Extract Electron headers for native module rebuild
-    # (Electron v36+ no longer publishes separate node-{version}-headers.tar.gz)
-    local runtime_dir="$INSTALL_DIR/electron-v${ELECTRON_VERSION}-linux-x64"
-    if [ ! -d "$runtime_dir" ]; then
-        # Try alternative naming
-        runtime_dir="$(find "$INSTALL_DIR" -maxdepth 1 -type d -name 'electron-*' | head -1)"
-    fi
-    if [ -d "$runtime_dir" ]; then
-        mkdir -p "$WORK_DIR/electron-headers/$ELECTRON_VERSION"
-        if extract_electron_headers "$runtime_dir" "$WORK_DIR/electron-headers/$ELECTRON_VERSION/node-${ELECTRON_VERSION}-headers.tar.gz"; then
-            export ELECTRON_HEADERS_DIR="$WORK_DIR/electron-headers"
-        fi
-    fi
-    
     copy_app_payload "$app_bundle"
 
     # Rebuild native modules in app.asar.unpacked (where the .node files live)

@@ -43,21 +43,6 @@ download_electron_runtime() {
 
 extract_electron_headers() {
     local runtime_dir="$1"
-    local headers_dir="$2"
-    
-    if [ -d "$runtime_dir/include/node" ]; then
-        mkdir -p "$headers_dir"
-        cp -a "$runtime_dir/include/node/"* "$headers_dir/"
-        info "  Extracted Electron headers from runtime"
-        return 0
-    fi
-    
-    warn "  No headers found in electron runtime"
-    return 1
-}
-
-extract_electron_headers() {
-    local runtime_dir="$1"
     local output_tarball="$2"
     
     # Find the electron runtime directory
@@ -81,5 +66,77 @@ extract_electron_headers() {
         tar czf "$output_tarball" include/node/
     )
     info "  Created headers tarball: $output_tarball"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# patch-nodejs-headers-for-electron
+#
+# Download stock Node.js 22.21.1 headers and patch the NODE_MODULE_VERSION
+# to match Electron's ABI (136 for Electron 37.x).  This is a workaround
+# for Electron versions that do not publish the standard node-*-headers.tar.gz
+# file that node-gyp / @electron/rebuild depends on.
+#
+# Node.js 22.21.1 is the same base Node version used by Electron 37, so the
+# APIs match perfectly — only the ABI constant differs.
+# ---------------------------------------------------------------------------
+prepare_patched_electron_headers() {
+    local headers_dir="$1"
+    local node_ver="22.21.1"
+    local node_abi="136"
+    local url="https://nodejs.org/download/release/v${node_ver}/node-v${node_ver}-headers.tar.gz"
+    local tarball="$WORK_DIR/node-v${node_ver}-headers.tar.gz"
+
+    rm -rf "$headers_dir"
+    mkdir -p "$headers_dir"
+
+    if [ ! -f "$tarball" ]; then
+        info "  Downloading Node.js ${node_ver} headers for patching (ABI ${node_abi})"
+        curl -sL --connect-timeout 30 "$url" -o "$tarball" || {
+            warn "  Failed to download Node.js headers"
+            return 1
+        }
+    fi
+
+    tar -xzf "$tarball" -C "$headers_dir" --strip-components=1 2>/dev/null || {
+        warn "  Failed to extract Node.js headers"
+        return 1
+    }
+
+    [ -f "$headers_dir/include/node/node_version.h" ] || {
+        warn "  Node.js headers missing node_version.h"
+        return 1
+    }
+
+    # Patch node_version.h: replace the NODE_EMBEDDER_MODULE_VERSION conditional
+    # (which normally produces ABI 127 for Node 22) with a hardcoded Electron ABI.
+    python3 -c "
+with open('$headers_dir/include/node/node_version.h') as f:
+    content = f.read()
+content = content.replace(
+    '#if defined(NODE_EMBEDDER_MODULE_VERSION)\\n#define NODE_MODULE_VERSION NODE_EMBEDDER_MODULE_VERSION\\n#else\\n#define NODE_MODULE_VERSION 127\\n#endif',
+    '#if 1\\n#define NODE_MODULE_VERSION $node_abi\\n#endif')
+with open('$headers_dir/include/node/node_version.h', 'w') as f:
+    f.write(content)
+" 2>/dev/null || {
+        warn "  Failed to patch node_version.h"
+        return 1
+    }
+
+    # Ensure config.gypi reflects the patched ABI
+    if [ -f "$headers_dir/include/node/config.gypi" ]; then
+        python3 -c "
+with open('$headers_dir/include/node/config.gypi') as f:
+    content = f.read()
+import re
+content = re.sub(r\"'node_module_version': \d+\", \"'node_module_version': $node_abi\", content)
+with open('$headers_dir/include/node/config.gypi', 'w') as f:
+    f.write(content)
+" 2>/dev/null || true
+    fi
+
+    # Mark as ready
+    touch "$headers_dir/.patched"
+    info "  Patched Node.js headers (ABI ${node_abi})"
     return 0
 }
