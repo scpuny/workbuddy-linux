@@ -476,10 +476,10 @@ install_linux_platform_packages() {
             local headers_dir="$WORK_DIR/electron-headers-patched"
             # Download + patch headers only once per build
             if [ ! -f "$headers_dir/.patched" ]; then
-                prepare_patched_electron_headers "$headers_dir"
+                prepare_patched_electron_headers "$headers_dir" || true
             fi
             if [ -f "$headers_dir/.patched" ]; then
-                info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (ABI=$NODE_ABI)"
+                info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (ABI=136)"
                 (
                     cd "$bsql3_pkg"
                     npm_config_nodedir="$headers_dir" \
