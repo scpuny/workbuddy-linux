@@ -182,7 +182,7 @@ build_native_module_fresh() {
         # Rebuild for the target Electron
         # If ELECTRON_HEADERS_DIR is set (extracted from runtime), use it directly.
         # Otherwise fall back to disturl-based header download.
-        if [ -n "$ELECTRON_HEADERS_DIR" ] && [ -d "$ELECTRON_HEADERS_DIR" ]; then
+        if [ -n "${ELECTRON_HEADERS_DIR:-}" ] && [ -d "$ELECTRON_HEADERS_DIR" ]; then
             # Use local headers extracted from the Electron runtime
             # (Electron v36+ no longer publishes node-{version}-headers.tar.gz)
             export ELECTRON_HEADERS_URL="$ELECTRON_HEADERS_DIR"
@@ -192,12 +192,12 @@ build_native_module_fresh() {
                 --dist-url "$ELECTRON_HEADERS_DIR" \
                 --only "$module_name" 2>&1
         else
-            npm_config_disturl="$ELECTRON_HEADERS_URL" \
-            NPM_CONFIG_DISTURL="$ELECTRON_HEADERS_URL" \
+            npm_config_disturl="${ELECTRON_HEADERS_URL:-https://npmmirror.com/mirrors/electron}" \
+            NPM_CONFIG_DISTURL="${ELECTRON_HEADERS_URL:-https://npmmirror.com/mirrors/electron}" \
             npx --yes @electron/rebuild \
                 -v "$ELECTRON_VERSION" \
                 --force \
-                --dist-url "$ELECTRON_HEADERS_URL" \
+                --dist-url "${ELECTRON_HEADERS_URL:-https://npmmirror.com/mirrors/electron}" \
                 --only "$module_name" 2>&1
         fi
     )
