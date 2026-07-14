@@ -1,0 +1,93 @@
+# Upstream version watcher
+#
+# Periodically checks the official WorkBuddy download page for newer
+# versions. When found, it opens an issue (or creates a PR) so the
+# maintainer can verify and tag a new release.
+name: Check Upstream Version
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only log — do not open issue'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Detect new upstream version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.NEW_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check upstream version
+        id: version
+        run: |
+          bash .github/scripts/check-upstream-version.sh
+        continue-on-error: true
+        env:
+          UPSTREAM_CHECK_URL: ${{ vars.UPSTREAM_CHECK_URL || 'https://workbuddy.tencent.com/download' }}
+          VERSION_PATTERN: ${{ vars.UPSTREAM_VERSION_PATTERN || '([0-9]+\.[0-9]+\.[0-9]+)' }}
+          REPO_DIR: ${{ github.workspace }}
+
+      - name: Log result
+        run: |
+          echo "detected=${{ steps.version.outputs.NEW_VERSION }}"
+
+  notify:
+    name: Open tracking issue
+    needs: check
+    if: needs.check.outputs.new_version != '' && github.event_name != 'workflow_dispatch' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read current version
+        id: current
+        run: echo "version=$(node -e 'console.log(require(\"./package.json\").version)')" >> "$GITHUB_OUTPUT"
+
+      - name: Check for existing issue
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEW="${{ needs.check.outputs.new_version }}"
+          EXISTING=$(gh issue list \
+            --label "upstream-update" \
+            --state open \
+            --json title \
+            --jq "[.[] | select(.title | contains(\"WorkBuddy $NEW\"))] | length")
+          echo "count=$EXISTING" >> "$GITHUB_OUTPUT"
+
+      - name: Open issue
+        if: steps.existing.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEW="${{ needs.check.outputs.new_version }}"
+          OLD="${{ steps.current.outputs.version }}"
+          gh issue create \
+            --title "Upstream WorkBuddy $NEW detected (current: $OLD)" \
+            --label "upstream-update" \
+            --body \
+          "A new WorkBuddy version **$NEW** was detected upstream (current local pinned version: **$OLD**).
+
+          ## Checklist for maintainer
+
+          - [ ] Download the official WorkBuddy DMG for version $NEW
+          - [ ] Run \`make build-app\` to verify the conversion works
+          - [ ] Update \`package.json\` version to $NEW
+          - [ ] Update README version badges
+          - [ ] Commit changes and push a tag \`v$NEW\` to trigger a release
+
+          > This issue was automatically opened by the [upstream version watcher](./.github/workflows/check-upstream.yml).
+          "

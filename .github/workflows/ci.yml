@@ -1,0 +1,92 @@
+# CI — validate scripts, packaging metadata, and PR sanity
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - LICENSE
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck on all shell scripts
+        uses: ludeeus/action-shellcheck@master
+        with:
+          ignore: node_modules
+          severity: warning
+
+  syntax-check:
+    name: Bash syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bash syntax
+        run: |
+          set -e
+          echo "::group::install.sh"
+          bash -n install.sh
+          echo "::endgroup::"
+          for f in scripts/*.sh scripts/lib/*.sh; do
+            echo "::group::$f"
+            bash -n "$f"
+            echo "::endgroup::"
+          done
+          echo "All scripts pass syntax check."
+
+  packaging-validate:
+    name: Packaging metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate control file
+        run: |
+          set -e
+          echo "::group::control file"
+          sed \
+            -e "s/__PACKAGE_NAME__/workbuddy/g" \
+            -e "s/__VERSION__/0.0.0/g" \
+            -e "s/__ARCH__/amd64/g" \
+            packaging/linux/control > /tmp/control-check
+          # Basic field validation
+          for field in Package Version Section Priority Architecture Depends Maintainer Description; do
+            grep -q "^${field}:" /tmp/control-check || { echo "Missing field: $field"; exit 1; }
+          done
+          echo "Control file is valid."
+          echo "::endgroup::"
+      - name: Validate .desktop file
+        run: |
+          set -e
+          echo "::group::desktop file"
+          desktop-file-validate packaging/linux/workbuddy.desktop || true
+          echo "::endgroup::"
+
+  version-consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check package.json version matches README badges
+        run: |
+          set -e
+          PKG_VER=$(node -e "console.log(require('./package.json').version)")
+          echo "Package version: $PKG_VER"
+          if grep -q "版本适配.*${PKG_VER}" README.md; then
+            echo "README version badge matches package.json"
+          else
+            echo "⚠️  README version badge might need update (expected $PKG_VER)"
+          fi

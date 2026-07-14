@@ -1,0 +1,48 @@
+# ── Upstream binaries & extracted app bundles ────────────────────────────────
+downloads/
+build/
+dmg/
+dmg_extract/
+*.dmg
+*.app
+
+# ── Converted Linux app directory ────────────────────────────────────────────
+workbuddy-app/
+workbuddy-app-next/
+
+# ── Package build roots & artifacts ──────────────────────────────────────────
+dist/
+dist-next/
+*.deb
+*.rpm
+*.pkg.tar.zst
+
+# ── Temporary build artefacts ────────────────────────────────────────────────
+.asar-tool/
+.asar-extract/
+.test-repack.asar/
+.test-repack.asar.unpacked/
+.tmp-asar-tool.js
+.tmp-asar-repack.js
+
+# ── Reference / audit artefacts ──────────────────────────────────────────────
+reference/
+
+# ── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ── Agent / IDE metadata ─────────────────────────────────────────────────────
+.reasonix/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ── CI / build temp files in project root ───────────────────────────────────
+/tmp/
+/temp/
+/dist/*.tar.gz

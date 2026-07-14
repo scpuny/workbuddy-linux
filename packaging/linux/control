@@ -1,0 +1,12 @@
+Package: __PACKAGE_NAME__
+Section: x11
+Priority: optional
+Architecture: __ARCH__
+Depends: libc6 (>= 2.31), libglib2.0-0 (>= 2.12.0), libgtk-3-0 | libgtk-4-1, libnss3 (>= 2:3.50), libxss1, libasound2 | libasound2t64, libsecret-1-0, libxkbfile1, libgbm1, libdrm2, libx11-xcb1, libxcb-dri3-0, libatspi2.0-0, libxcomposite1, libxdamage1, libxrandr2, libpango-1.0-0, libcairo2, libgdk-pixbuf-2.0-0
+Suggests: libnss-wrapper
+Maintainer: Community Maintainers <noreply@example.invalid>
+Build-Depends: dpkg-dev (>= 1.17.0)
+Description: Unofficial local Linux conversion of WorkBuddy
+ This package is generated locally from a user-owned official WorkBuddy
+ macOS copy. It does not redistribute upstream software through the source
+ repository.
