@@ -263,24 +263,35 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
           args = undefined;
         }
         var patched = spillOversizedEnv(options);
-        // Force-inject ELECTRON_DISABLE_SANDBOX so EVERY child process
-        // spawned by the main Electron process (including the daemon
-        // app-server launched with ELECTRON_RUN_AS_NODE=1) inherits the
-        // setting.  Without this, child processes may crash with
-        // SIGTRAP due to V8/Chromium sandbox initialization failures.
+        // Force-inject flags into EVERY process spawned with the Electron
+        // binary, regardless of ELECTRON_RUN_AS_NODE=1 mode.
+        //
+        // The daemon app-server is spawned with
+        //   ELECTRON_RUN_AS_NODE=1 process.execPath entry.js
+        // Even in Node.js mode, the Chromium/V8 runtime initialisation
+        // runs before the mode switch and can crash with SIGTRAP if the
+        // sandbox is active.  Ensure ALL the "no sandbox" flags are set.
         if (patched && typeof patched === "object") {
           var env = patched.env;
-          if (env && typeof env === "object" && !env.ELECTRON_DISABLE_SANDBOX) {
+          if (env && typeof env === "object") {
             try { env.ELECTRON_DISABLE_SANDBOX = "1"; } catch (_) {}
           }
-          // When running as Electron (without ELECTRON_RUN_AS_NODE),
-          // ensure --no-sandbox is first in the args so it is picked up
-          // by Chromium's subprocess initialization.  In Node.js mode
-          // (ELECTRON_RUN_AS_NODE=1) the sandbox is already skipped.
-          if (!env.ELECTRON_RUN_AS_NODE
-              && (command === process.execPath || (typeof command === "string" && command.indexOf("electron") >= 0))
-              && Array.isArray(args) && args.indexOf("--no-sandbox") < 0) {
-            args = ["--no-sandbox"].concat(args);
+          // Is this spawn targetting the Electron binary (either directly
+          // or via process.execPath)?
+          var isElectron = (command === process.execPath)
+            || (typeof command === "string" && (
+                 command.indexOf("electron") >= 0
+              || command.indexOf(process.execPath) >= 0
+            ));
+          if (isElectron && Array.isArray(args)) {
+            // Prepend mandatory flags that prevent sandbox/V8 crashes.
+            // We use a Set to avoid duplicates.
+            var mandatory = ["--no-sandbox", "--disable-v8-sandbox", "--no-zygote"];
+            for (var fi = mandatory.length - 1; fi >= 0; fi--) {
+              if (args.indexOf(mandatory[fi]) < 0) {
+                args = [mandatory[fi]].concat(args);
+              }
+            }
           }
         }
 
