@@ -232,11 +232,15 @@ rebuild_critical_modules() {
     local app_dir="$1"
 
     info "=== Phase 3: Rebuilding native modules from source ==="
-    info "  Target: Electron $ELECTRON_VERSION | Headers: $ELECTRON_HEADERS_URL"
+    info "  Target: Electron $ELECTRON_VERSION | Headers: ${ELECTRON_HEADERS_URL:-https://npmmirror.com/mirrors/electron}"
 
     local module_name module_version
 
-    # --- Critical modules (build failure = fatal error) ---
+    # --- Critical modules (build failure = continue with prebuilds) ---
+    # Electron v36+ no longer publishes separate node-*-headers.tar.gz,
+    # so attempting to rebuild from source against the ABI will likely
+    # fail due to missing headers.  We continue on failure here and rely
+    # on the Linux platform packages installed in Phase 4.
     local -a critical_modules=(
         "node-pty"
         "better-sqlite3"
@@ -248,7 +252,7 @@ rebuild_critical_modules() {
             warn "  Module $module_name not found in app; skipping"
             continue
         fi
-        build_native_module_fresh "$app_dir" "$module_name" "$module_version" 0
+        build_native_module_fresh "$app_dir" "$module_name" "$module_version" 1
     done
 
     # --- Optional modules (build failure = warning only) ---

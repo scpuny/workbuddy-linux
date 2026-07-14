@@ -66,13 +66,6 @@ jobs:
             exit 1
           fi
 
-      - name: Cache Electron runtime
-        id: cache-electron
-        uses: actions/cache@v4
-        with:
-          path: .cache/electron
-          key: electron-v${{ needs.validate.outputs.electron_version }}-${{ runner.arch }}
-
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
