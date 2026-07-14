@@ -1,4 +1,5 @@
 Package: __PACKAGE_NAME__
+Version: __VERSION__
 Section: x11
 Priority: optional
 Architecture: __ARCH__
