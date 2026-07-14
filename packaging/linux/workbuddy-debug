@@ -104,6 +104,7 @@ launch() {
 
     export CHROME_DESKTOP="workbuddy.desktop"
     export ELECTRON_FORCE_IS_PACKAGED=1
+    export ELECTRON_DISABLE_SANDBOX=1
 
     set -x
     exec "$ELECTRON" \

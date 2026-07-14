@@ -191,9 +191,13 @@ APP_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 export CHROME_DESKTOP="${APP_ID}.desktop"
 export ELECTRON_FORCE_IS_PACKAGED=1
 
+# Critical fix: propagate --no-sandbox to ALL child processes (daemon,
+# sidecar, GPU, utility).  Without this, processes spawned by the main
+# process (including the daemon app-server) inherit Electron's default
+# sandbox and may crash with SIGTRAP on certain kernels/V8 versions.
+export ELECTRON_DISABLE_SANDBOX=1
+
 # Detect the best graphics backend.
-# On Wayland sessions we try the Wayland backend first, on X11 we
-# stay on X11.  The user can override with WB_OZONE_PLATFORM.
 OZONE="\${WB_OZONE_PLATFORM:-}"
 if [ -z "\$OZONE" ]; then
     case "\${XDG_SESSION_TYPE:-}" in
@@ -214,10 +218,12 @@ if [ "\$OZONE" = "auto" ] || [ "\$OZONE" = "wayland" ]; then
     ELECTRON_FLAGS+=(--enable-wayland-ime)
 fi
 
-# If the user explicitly sets WB_DISABLE_GPU=1, disable GPU acceleration
-# (useful when running in a VM or with problematic GPU drivers).
-if [ "\${WB_DISABLE_GPU:-0}" = "1" ]; then
-    ELECTRON_FLAGS+=(--disable-gpu)
+# If the user explicitly sets WB_DISABLE_GPU=1, bypass GPU entirely.
+# This is also tried automatically on first launch if the window renders
+# as white (stored in ~/.config/workbuddy/.wb-no-gpu).
+NOGPU_FLAG="\${WB_DISABLE_GPU:-0}"
+if [ "\$NOGPU_FLAG" = "1" ]; then
+    ELECTRON_FLAGS+=(--disable-gpu --in-process-gpu)
 fi
 
 exec "\$APP_DIR/electron" "\${ELECTRON_FLAGS[@]}" "\$@"
