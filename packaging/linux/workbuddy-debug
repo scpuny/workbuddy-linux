@@ -77,6 +77,7 @@ check_system() {
     echo "  WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<not set>}"
     echo "  XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<not set>}"
     echo "  ELECTRON_FORCE_IS_PACKAGED=${ELECTRON_FORCE_IS_PACKAGED:-<not set>}"
+    echo "  ELECTRON_DISABLE_SANDBOX=${ELECTRON_DISABLE_SANDBOX:-<not set>}"
 
     # Kernel / OS
     echo ""
