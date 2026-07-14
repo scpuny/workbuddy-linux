@@ -183,7 +183,7 @@ PY
 }
 
 write_launcher() {
-    cat > "$INSTALL_DIR/start.sh" <<EOF
+    cat > "$INSTALL_DIR/start.sh" <<LAUNCHER
 #!/bin/bash
 set -euo pipefail
 
@@ -191,15 +191,37 @@ APP_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 export CHROME_DESKTOP="${APP_ID}.desktop"
 export ELECTRON_FORCE_IS_PACKAGED=1
 
-exec "\$APP_DIR/electron" \\
-  --no-sandbox \\
-  --disable-dev-shm-usage \\
-  --disable-gpu-sandbox \\
-  --in-process-gpu \\
-  --ozone-platform-hint=auto \\
-  --enable-wayland-ime \\
-  "\$@"
-EOF
+# Detect the best graphics backend.
+# On Wayland sessions we try the Wayland backend first, on X11 we
+# stay on X11.  The user can override with WB_OZONE_PLATFORM.
+OZONE="\${WB_OZONE_PLATFORM:-}"
+if [ -z "\$OZONE" ]; then
+    case "\${XDG_SESSION_TYPE:-}" in
+        wayland) OZONE="auto" ;;
+        *)       OZONE="x11" ;;
+    esac
+fi
+
+ELECTRON_FLAGS=(
+    --no-sandbox
+    --disable-dev-shm-usage
+    --disable-gpu-sandbox
+    --ozone-platform-hint="\$OZONE"
+)
+
+# Enable Wayland IME only when running on Wayland
+if [ "\$OZONE" = "auto" ] || [ "\$OZONE" = "wayland" ]; then
+    ELECTRON_FLAGS+=(--enable-wayland-ime)
+fi
+
+# If the user explicitly sets WB_DISABLE_GPU=1, disable GPU acceleration
+# (useful when running in a VM or with problematic GPU drivers).
+if [ "\${WB_DISABLE_GPU:-0}" = "1" ]; then
+    ELECTRON_FLAGS+=(--disable-gpu)
+fi
+
+exec "\$APP_DIR/electron" "\${ELECTRON_FLAGS[@]}" "\$@"
+LAUNCHER
     chmod +x "$INSTALL_DIR/start.sh"
 }
 

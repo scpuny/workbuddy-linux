@@ -1,0 +1,145 @@
+#!/bin/bash
+# workbuddy-debug — diagnostic launcher for WorkBuddy on Linux
+#
+# Usage:
+#   workbuddy-debug           # run with verbose logging to terminal
+#   workbuddy-debug --gpu     # try with --disable-gpu (bypass GPU issues)
+#   workbuddy-debug --x11     # force X11 instead of Wayland
+#   workbuddy-debug --check   # only check system, don't launch
+#   workbuddy-debug --help    # this help
+set -euo pipefail
+
+APP_DIR="/opt/workbuddy"
+ELECTRON="$APP_DIR/electron"
+
+usage() {
+    sed -n '/^# Usage:/,/^[^#]/p' "$0" | head -n -1
+    exit 0
+}
+
+check_system() {
+    local issues=0
+
+    echo "═══════════════════════════════════════════"
+    echo " WorkBuddy Linux — System Diagnostics"
+    echo "═══════════════════════════════════════════"
+    echo ""
+
+    # App directory
+    echo "◆ App directory: $APP_DIR"
+    if [ -d "$APP_DIR" ]; then
+        echo "  ✓ Exists"
+        ls -la "$APP_DIR/electron" 2>/dev/null && echo "  ✓ Electron binary found"
+    else
+        echo "  ✗ NOT FOUND — is WorkBuddy installed?"
+        issues=$((issues + 1))
+    fi
+
+    # Chrome-sandbox
+    echo ""
+    echo "◆ Chrome sandbox:"
+    if [ -f "$APP_DIR/chrome-sandbox" ]; then
+        local perms
+        perms="$(stat -c '%a' "$APP_DIR/chrome-sandbox" 2>/dev/null)"
+        if [ "$perms" = "4755" ]; then
+            echo "  ✓ SUID set ($perms)"
+        else
+            echo "  ✗ SUID NOT set ($perms) — run: sudo chmod 4755 $APP_DIR/chrome-sandbox"
+            issues=$((issues + 1))
+        fi
+    else
+        echo "  - Not found (sandbox will be disabled)"
+    fi
+
+    # Missing libraries
+    echo ""
+    echo "◆ Missing shared libraries:"
+    local missing=0
+    if command -v ldd >/dev/null 2>&1 && [ -f "$ELECTRON" ]; then
+        missing="$(ldd "$ELECTRON" 2>/dev/null | grep 'not found' | wc -l)"
+        if [ "$missing" -gt 0 ]; then
+            echo "  ✗ $missing libraries missing:"
+            ldd "$ELECTRON" 2>/dev/null | grep 'not found'
+            echo ""
+            echo "  Run: sudo apt-get install -f"
+            issues=$((issues + 1))
+        else
+            echo "  ✓ All libraries resolved"
+        fi
+    else
+        echo "  - Cannot check (ldd not available or electron not found)"
+    fi
+
+    # Environment
+    echo ""
+    echo "◆ Environment:"
+    echo "  DISPLAY=$DISPLAY"
+    echo "  WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<not set>}"
+    echo "  XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<not set>}"
+    echo "  ELECTRON_FORCE_IS_PACKAGED=${ELECTRON_FORCE_IS_PACKAGED:-<not set>}"
+
+    # Kernel / OS
+    echo ""
+    echo "◆ System:"
+    echo "  $(uname -a 2>/dev/null)"
+    if command -v lsb_release >/dev/null 2>&1; then
+        echo "  $(lsb_release -d -s 2>/dev/null)"
+    fi
+
+    echo ""
+    if [ "$issues" -gt 0 ]; then
+        echo "⚠️  Found $issues issue(s). Fix them before running."
+    else
+        echo "✅ No obvious issues detected."
+    fi
+    echo ""
+}
+
+launch() {
+    local extra_flags=("$@")
+
+    echo "═══ Launching WorkBuddy ═══"
+    echo "Flags: ${extra_flags[*]:-(none)}"
+    echo ""
+
+    export CHROME_DESKTOP="workbuddy.desktop"
+    export ELECTRON_FORCE_IS_PACKAGED=1
+
+    set -x
+    exec "$ELECTRON" \
+        --no-sandbox \
+        --disable-dev-shm-usage \
+        --disable-gpu-sandbox \
+        "${extra_flags[@]}" \
+        "$@"
+}
+
+# ── Main ────────────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --help|-h)
+        usage
+        ;;
+    --check|-c)
+        check_system
+        exit 0
+        ;;
+    --gpu)
+        echo "→ Running with GPU acceleration disabled"
+        launch "--disable-gpu"
+        ;;
+    --x11|--xcb)
+        echo "→ Forcing X11 backend"
+        launch "--ozone-platform-hint=x11" "--enable-features=UseOzonePlatform"
+        ;;
+    --wayland)
+        echo "→ Forcing Wayland backend"
+        launch "--ozone-platform-hint=auto" "--enable-wayland-ime"
+        ;;
+    "")
+        check_system
+        launch
+        ;;
+    *)
+        launch "$@"
+        ;;
+esac

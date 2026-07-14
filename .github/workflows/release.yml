@@ -155,6 +155,31 @@ jobs:
           workbuddy                 # launch
           ```
 
+          ### 🩺 Troubleshooting (white screen / blank window)
+
+          If the window opens but the content area is white:
+
+          ```bash
+          # 1. Check system health
+          workbuddy-debug --check
+
+          # 2. Try with GPU acceleration disabled
+          WB_DISABLE_GPU=1 workbuddy
+
+          # 3. Force X11 backend (if you're on Wayland)
+          WB_OZONE_PLATFORM=x11 workbuddy
+
+          # 4. Launch with terminal output to see errors
+          workbuddy-debug
+          ```
+
+          ### 🔧 Debug scripts
+
+          - \`workbuddy-debug\` — diagnostic launcher with system checks
+          - \`workbuddy-debug --check\` — check system without launching
+          - \`workbuddy-debug --x11\` — force X11 backend
+          - \`workbuddy-debug --gpu\` — disable GPU acceleration
+
           To build from source instead, see the [README](https://github.com/${{ github.repository }}#readme).
 
           ### ✅ What's changed

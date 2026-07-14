@@ -55,6 +55,12 @@ exec /opt/$PACKAGE_NAME/start.sh "\$@"
 EOF
     chmod 0755 "$PKG_ROOT/usr/bin/$PACKAGE_NAME"
 
+    # Install debug launcher
+    if [ -f "$REPO_DIR/packaging/linux/workbuddy-debug" ]; then
+        cp "$REPO_DIR/packaging/linux/workbuddy-debug" "$PKG_ROOT/usr/bin/${PACKAGE_NAME}-debug"
+        chmod 0755 "$PKG_ROOT/usr/bin/${PACKAGE_NAME}-debug"
+    fi
+
     sed -e "s|__EXEC__|/opt/$PACKAGE_NAME/start.sh %F|g" "$DESKTOP_TEMPLATE" \
         > "$PKG_ROOT/usr/share/applications/$PACKAGE_NAME.desktop"
     chmod 0644 "$PKG_ROOT/usr/share/applications/$PACKAGE_NAME.desktop"
@@ -71,6 +77,12 @@ EOF
         -e "s/__ARCH__/$arch/g" \
         "$CONTROL_TEMPLATE" > "$PKG_ROOT/DEBIAN/control"
     chmod 0644 "$PKG_ROOT/DEBIAN/control"
+
+    # Install postinst / postrm scripts
+    if [ -f "$REPO_DIR/packaging/linux/postinst" ]; then
+        cp "$REPO_DIR/packaging/linux/postinst" "$PKG_ROOT/DEBIAN/postinst"
+        chmod 0755 "$PKG_ROOT/DEBIAN/postinst"
+    fi
 
     mkdir -p "$DIST_DIR"
     dpkg-deb --root-owner-group --build "$PKG_ROOT" "$output_file" >&2

@@ -1,0 +1,41 @@
+#!/bin/bash
+# postinst — WorkBuddy Debian package post-installation script
+set -e
+
+PACKAGE_NAME=workbuddy
+
+case "$1" in
+    configure)
+        # 1. Install any missing dependencies
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get install -f -y -qq >/dev/null 2>&1 || true
+        fi
+
+        # 2. Ensure chrome-sandbox has SUID set (required for Chromium
+        #    to spawn sandboxed child processes on Linux)
+        SANDBOX="/opt/$PACKAGE_NAME/chrome-sandbox"
+        if [ -f "$SANDBOX" ]; then
+            chmod 4755 "$SANDBOX" 2>/dev/null || true
+        fi
+
+        # 3. Update GTK icon cache
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+        fi
+
+        # 4. Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        exit 0
+        ;;
+
+    *)
+        exit 0
+        ;;
+esac
+
+exit 0
