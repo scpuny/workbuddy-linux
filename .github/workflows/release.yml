@@ -51,6 +51,7 @@ jobs:
       ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron
       ELECTRON_HEADERS_URL: https://npmmirror.com/mirrors/electron
       WORKBUDDY_INSTALL_DIR: ${{ github.workspace }}/workbuddy-app
+      APP_DIR: ${{ github.workspace }}/workbuddy-app
       WORKBUDDY_ELECTRON_CACHE_DIR: ${{ github.workspace }}/.cache/electron
       DIST_DIR: ${{ github.workspace }}/dist
     steps:
