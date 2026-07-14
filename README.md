@@ -15,8 +15,8 @@ WorkBuddy 的非官方 Linux 自动化移植与安装构建脚本工具
   <img src="https://img.shields.io/badge/arch-ArchLinux_%7C_CachyOS_%7C_Manjaro-1793D1?style=flat&logo=arch-linux&logoColor=white" alt="AUR Package">
   <img src="https://img.shields.io/badge/rpm-Fedora_%7C_RHEL-006699?style=flat&logo=fedora&logoColor=white" alt="Fedora RHEL Support">
   <br>
-  <img src="https://img.shields.io/badge/版本适配-4.22.10-0052D9?style=flat&logo=probot&logoColor=white" alt="Supported Version">
-  <img src="https://img.shields.io/badge/Electron-41.1.1-47307B?style=flat&logo=electron&logoColor=white" alt="Electron Version">
+  <img src="https://img.shields.io/badge/版本适配-5.2.5-0052D9?style=flat&logo=probot&logoColor=white" alt="Supported Version">
+  <img src="https://img.shields.io/badge/Electron-37.10.3-47307B?style=flat&logo=electron&logoColor=white" alt="Electron Version">
   <img src="https://img.shields.io/badge/状态-Unofficial-d73a49?style=flat" alt="Status Unofficial">
 </p>
 
@@ -48,7 +48,7 @@ WorkBuddy 的非官方 Linux 自动化移植与安装构建脚本工具
 
 ## 版本适配说明
 
-当前补丁基于官方 WorkBuddy **4.22.10**（构建号 `27634624-ec5e02bd`）验证通过。更高版本的 DMG 可能因为上游代码结构变化导致补丁无法正确应用。如遇到构建失败或运行异常，请在本仓库提 Issue 并附上所使用的 DMG 版本号。
+当前补丁基于官方 WorkBuddy **5.2.5**验证通过。更高版本的 DMG 可能因为上游代码结构变化导致补丁无法正确应用。如遇到构建失败或运行异常，请在本仓库提 Issue 并附上所使用的 DMG 版本号。
 
 ## 快速安装
 
@@ -220,7 +220,7 @@ ELECTRON_HEADERS_URL=https://artifacts.electronjs.org/headers/dist bash install.
 
 ## 版本適配說明
 
-當前補丁基於官方 WorkBuddy **4.22.10**（構建號 `27634624-ec5e02bd`）驗證通過。更高版本的 DMG 可能因為上游程式碼結構變化導致補丁無法正確套用。如遇到構建失敗或運行異常，請在本倉庫提 Issue 並附上所使用的 DMG 版本號。
+當前補丁基於官方 WorkBuddy **5.2.5**驗證通過。更高版本的 DMG 可能因為上游程式碼結構變化導致補丁無法正確套用。如遇到構建失敗或運行異常，請在本倉庫提 Issue 並附上所使用的 DMG 版本號。
 
 ## 快速安裝
 
@@ -392,7 +392,7 @@ If you encounter any bugs, please submit an Issue in this repository. Do not dir
 
 ## Version Compatibility
 
-The current patches have been verified against official WorkBuddy **4.22.10** (build `27634624-ec5e02bd`). Higher versions of the DMG may have upstream code structure changes that prevent patches from applying correctly. If you encounter build failures or runtime issues, please file an Issue in this repository with the DMG version number you are using.
+The current patches have been verified against official WorkBuddy **5.2.5**. Higher versions of the DMG may have upstream code structure changes that prevent patches from applying correctly. If you encounter build failures or runtime issues, please file an Issue in this repository with the DMG version number you are using.
 
 ## Quick Install
 
