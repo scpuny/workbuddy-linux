@@ -171,10 +171,18 @@ build_native_module_fresh() {
     rm -rf "$build_dir"
     mkdir -p "$build_dir"
 
+    local rc=0
     info "  Building $module_name@$module_version from source for Electron $ELECTRON_VERSION"
+
+    # Run rebuild in a subshell.  Use || to capture the exit code safely
+    # under set -e (which is active via the caller's set -Eeuo pipefail).
     (
         cd "$build_dir"
         echo '{"private":true}' > package.json
+
+        # Install the Electron npm package so @electron/rebuild can resolve the version.
+        # (--ignore-scripts skips the runtime download — we already have it.)
+        npm install "electron@$ELECTRON_VERSION" --save-dev --ignore-scripts --no-audit --no-fund 2>&1 >/dev/null
 
         # Install the module's full source
         npm install "$module_name@$module_version" --ignore-scripts --no-audit --no-fund 2>&1 >/dev/null
@@ -200,10 +208,9 @@ build_native_module_fresh() {
                 --dist-url "${ELECTRON_HEADERS_URL:-https://npmmirror.com/mirrors/electron}" \
                 --only "$module_name" 2>&1
         fi
-    )
+    ) || rc=$?
 
-    local rc=$?
-    if [ $rc -ne 0 ]; then
+    if [ "$rc" -ne 0 ]; then
         if [ "$allow_fail" -eq 1 ]; then
             warn "  Failed to build $module_name@$module_version (optional, continuing)"
             return 0
@@ -452,6 +459,32 @@ install_linux_platform_packages() {
                     cp -a "$src_path" "$linux_pkg"
                     info "  Installed $pkg_name@$version to top-level node_modules"
                 fi
+            fi
+        fi
+    fi
+
+    # Refresh better-sqlite3 from npm (with prebuilds) if it exists in the app
+    local bsql3_pkg="$app_dir/node_modules/better-sqlite3"
+    if [ -f "$bsql3_pkg/package.json" ]; then
+        local bsql3_version
+        bsql3_version="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.version || ""));' "$bsql3_pkg/package.json" 2>/dev/null || true)"
+        if [ -n "$bsql3_version" ]; then
+            local bsql3_build="$WORK_DIR/bsql3-prebuild"
+            rm -rf "$bsql3_build"
+            mkdir -p "$bsql3_build"
+            info "  Installing better-sqlite3@$bsql3_version with prebuilds"
+            (
+                cd "$bsql3_build"
+                npm init -y >/dev/null 2>&1
+                # Allow scripts so prebuild-install downloads the Linux .so
+                npm install "better-sqlite3@$bsql3_version" --no-audit --no-fund 2>&1
+            ) || true
+            local bsql3_src="$bsql3_build/node_modules/better-sqlite3"
+            if [ -d "$bsql3_src" ]; then
+                # Replace the app's copy with the freshly installed one (which has Linux prebuilds)
+                rm -rf "$bsql3_pkg"
+                cp -a "$bsql3_src" "$bsql3_pkg"
+                info "  Installed better-sqlite3@$bsql3_version with Linux prebuild"
             fi
         fi
     fi
