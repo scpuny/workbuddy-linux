@@ -40,7 +40,12 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const asar = require('@electron/asar');
+
+(async () => {
+const { createRequire } = require('module');
+const _require = createRequire(__filename);
+const asar = await import(_require.resolve('@electron/asar'));
+
 
 const [, , asarPath, marker] = process.argv;
 if (!asarPath || !marker) {
@@ -258,6 +263,27 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
           args = undefined;
         }
         var patched = spillOversizedEnv(options);
+        // Force-inject ELECTRON_DISABLE_SANDBOX so EVERY child process
+        // spawned by the main Electron process (including the daemon
+        // app-server launched with ELECTRON_RUN_AS_NODE=1) inherits the
+        // setting.  Without this, child processes may crash with
+        // SIGTRAP due to V8/Chromium sandbox initialization failures.
+        if (patched && typeof patched === "object") {
+          var env = patched.env;
+          if (env && typeof env === "object" && !env.ELECTRON_DISABLE_SANDBOX) {
+            try { env.ELECTRON_DISABLE_SANDBOX = "1"; } catch (_) {}
+          }
+          // When running as Electron (without ELECTRON_RUN_AS_NODE),
+          // ensure --no-sandbox is first in the args so it is picked up
+          // by Chromium's subprocess initialization.  In Node.js mode
+          // (ELECTRON_RUN_AS_NODE=1) the sandbox is already skipped.
+          if (!env.ELECTRON_RUN_AS_NODE
+              && (command === process.execPath || (typeof command === "string" && command.indexOf("electron") >= 0))
+              && Array.isArray(args) && args.indexOf("--no-sandbox") < 0) {
+            args = ["--no-sandbox"].concat(args);
+          }
+        }
+
         if (args === undefined) return orig.call(cp, command, patched);
         return orig.call(cp, command, args, patched);
       }
@@ -715,7 +741,7 @@ const unpackPattern = partialUnpackedFiles.length
 // The repack produces its own sidecar directory matching the header's
 // unpack set. We throw that output away.
 // ---------------------------------------------------------------------------
-(async () => {
+
     const outPath = asarPath + '.new';
     const stagingSidecar = outPath + '.unpacked';
     try { fs.rmSync(outPath, { force: true }); } catch (_) {}
@@ -744,7 +770,8 @@ const unpackPattern = partialUnpackedFiles.length
     try { fs.rmSync(stagingSidecar, { recursive: true, force: true }); } catch (_) {}
 
     log('replaced app.asar in place (app.asar.unpacked left untouched)');
+
 })().catch(err => {
-    console.error('[apply-linux-patches] pack failed:', err);
+console.error('[apply-linux-patches] pack failed:', err);
     process.exit(6);
 });
