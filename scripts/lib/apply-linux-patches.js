@@ -276,13 +276,16 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
           if (env && typeof env === "object") {
             try { env.ELECTRON_DISABLE_SANDBOX = "1"; } catch (_) {}
           }
-          // Is this spawn targetting the Electron binary (either directly
-          // or via process.execPath)?
+          // Is this spawn targetting the Electron binary?
           var isElectron = (command === process.execPath)
             || (typeof command === "string" && (
                  command.indexOf("electron") >= 0
               || command.indexOf(process.execPath) >= 0
             ));
+          // ALWAYS inject --no-sandbox for electron binaries, even when
+          // ELECTRON_RUN_AS_NODE=1.  Electron initializes its Chromium
+          // sandbox BEFORE switching to Node.js mode, so the flag must
+          // be present in argv regardless of the runtime mode.
           if (isElectron && Array.isArray(args)) {
             // Prepend mandatory flags that prevent sandbox/V8 crashes.
             // We use a Set to avoid duplicates.
