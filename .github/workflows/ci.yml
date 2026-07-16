@@ -3,7 +3,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, dev]
     paths-ignore:
       - '**.md'
       - '.gitignore'
@@ -90,3 +90,62 @@ jobs:
           else
             echo "⚠️  README version badge might need update (expected $PKG_VER)"
           fi
+
+  build-deb:
+    name: Build .deb
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/develop'
+    env:
+      DMG_URL: ${{ secrets.DMG_DOWNLOAD_URL }}
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron
+      ELECTRON_HEADERS_URL: https://npmmirror.com/mirrors/electron
+      WORKBUDDY_INSTALL_DIR: ${{ github.workspace }}/workbuddy-app
+      APP_DIR: ${{ github.workspace }}/workbuddy-app
+      WORKBUDDY_ELECTRON_CACHE_DIR: ${{ github.workspace }}/.cache/electron
+      DIST_DIR: ${{ github.workspace }}/dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check DMG secret
+        run: |
+          if [ -z "$DMG_URL" ]; then
+            echo "⚠️  DMG_DOWNLOAD_URL secret not set — skipping build"
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq             bash ca-certificates curl unzip 7zip python3 make g++ pkg-config             libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev             dpkg-dev fakeroot desktop-file-utils             nodejs npm
+
+      - name: Verify Node.js
+        run: |
+          echo "node $(node -v) / npm $(npm -v) / npx $(npx -v)"
+
+      - name: Download official WorkBuddy DMG
+        run: |
+          mkdir -p downloads
+          echo "Downloading DMG from $DMG_URL ..."
+          curl -L --fail --progress-bar -o downloads/workbuddy.dmg "$DMG_URL"
+          ls -lh downloads/workbuddy.dmg
+
+      - name: Build Linux app (install.sh)
+        run: |
+          bash install.sh downloads/workbuddy.dmg 2>&1
+
+      - name: Build .deb package
+        run: |
+          bash scripts/build-deb.sh 2>&1
+
+      - name: List artifacts
+        run: |
+          echo "=== dist/ contents ==="
+          ls -lhR dist/
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbuddy-deb
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 30
