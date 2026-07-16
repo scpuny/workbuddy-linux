@@ -8,6 +8,8 @@ INSTALL_DIR="${WORKBUDDY_INSTALL_DIR:-$SCRIPT_DIR/workbuddy-app}"
 ELECTRON_VERSION="${ELECTRON_VERSION:-41.1.1}"
 ELECTRON_HEADERS_URL="${ELECTRON_HEADERS_URL:-${npm_config_disturl:-${NPM_CONFIG_DISTURL:-https://npmmirror.com/mirrors/electron}}}"
 ELECTRON_MIRROR="${ELECTRON_MIRROR:-}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+NODE_HEADERS_MIRROR="${NODE_HEADERS_MIRROR:-https://npmmirror.com/mirrors/node}"
 WORK_DIR="$(mktemp -d)"
 # shellcheck disable=SC2034 # used by sourced modules (electron.sh, native-modules.sh)
 ARCH="$(uname -m)"
@@ -290,6 +292,10 @@ main() {
     info "Using Electron $ELECTRON_VERSION (ABI $ELECTRON_ABI)"
 
     copy_app_payload "$app_bundle"
+
+    # Use domestic npm mirror if set, so native module installs go through
+    # a fast local registry (e.g. npmmirror.com in China) instead of npmjs.org.
+    export npm_config_registry="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 
     # Rebuild native modules in app.asar.unpacked (where the .node files live)
     local native_dir="$INSTALL_DIR/resources/app.asar.unpacked"

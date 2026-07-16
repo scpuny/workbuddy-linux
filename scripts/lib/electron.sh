@@ -109,7 +109,7 @@ prepare_patched_electron_headers() {
 
     [ -n "$node_abi" ] || node_abi="$(detect_electron_abi "$electron_bin")"
     local node_ver="22.21.1"
-    local url="https://nodejs.org/download/release/v${node_ver}/node-v${node_ver}-headers.tar.gz"
+    local url="${NODE_HEADERS_MIRROR:-https://nodejs.org/download/release}/v${node_ver}/node-v${node_ver}-headers.tar.gz"
     local tarball="$WORK_DIR/node-v${node_ver}-headers.tar.gz"
 
     rm -rf "$headers_dir"

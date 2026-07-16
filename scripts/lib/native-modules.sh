@@ -460,30 +460,55 @@ install_linux_platform_packages() {
     fi
 
     # --- better-sqlite3: compile from source against patched Node.js headers ---
-    # Electron v37+ doesn't publish the standard node-*-headers.tar.gz tarball
-    # needed by node-gyp.  Workaround: download the stock Node.js 22.21.1
-    # headers (same Node major as Electron 37's runtime), patch the
-    # NODE_MODULE_VERSION to 136 (= Electron 37 ABI), and build against them.
+    # The macOS bundle ships prebuilt .node files without binding.gyp or
+    # full source (gypfile undefined).  We must install the full package
+    # from npm, rebuild against patched Electron headers, then replace
+    # the macOS package with the Linux-built one.
     local bsql3_pkg="$app_dir/node_modules/better-sqlite3"
     if [ -f "$bsql3_pkg/package.json" ]; then
         local bsql3_version
         bsql3_version="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.version || ""));' "$bsql3_pkg/package.json" 2>/dev/null || true)"
         if [ -n "$bsql3_version" ]; then
             local headers_dir="$WORK_DIR/electron-headers-patched"
-            # Download + patch headers only once per build
             if [ ! -f "$headers_dir/.patched" ]; then
                 prepare_patched_electron_headers "$headers_dir" || true
             fi
             if [ -f "$headers_dir/.patched" ]; then
-                info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (auto-detected ABI)"
+                # Install full package from npm (macOS bundle lacks binding.gyp)
+                local bsql3_build="$WORK_DIR/bsql3-rebuild"
+                rm -rf "$bsql3_build"
+                mkdir -p "$bsql3_build"
+                info "  Installing better-sqlite3@$bsql3_version from npm for Linux rebuild"
                 (
-                    cd "$bsql3_pkg" || exit 1
-                    npm_config_nodedir="$headers_dir" \
-                        npx --yes node-gyp rebuild --release 2>&1
-                ) || warn "  Failed to rebuild better-sqlite3 (continuing with prebuild)"
+                    cd "$bsql3_build" || exit 1
+                    npm init -y >/dev/null 2>&1
+                    npm install "better-sqlite3@$bsql3_version" --no-audit --no-fund 2>&1
+                ) || { warn "  Failed to install better-sqlite3@$bsql3_version from npm"; bsql3_src=""; }
+                local bsql3_src="$bsql3_build/node_modules/better-sqlite3"
+                if [ -f "$bsql3_src/binding.gyp" ]; then
+                    info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (ABI from binary)"
+                    (
+                        cd "$bsql3_src" || exit 1
+                        npm_config_nodedir="$headers_dir"                             npx --yes node-gyp rebuild --release 2>&1
+                    ) || warn "  Failed to rebuild better-sqlite3"
+                    local built_node
+                    built_node="$(find "$bsql3_src/build/Release" -name "better_sqlite3.node" -type f 2>/dev/null | head -1)"
+                    if [ -n "$built_node" ]; then
+                        rm -rf "$bsql3_pkg"
+                        cp -a "$bsql3_src" "$bsql3_pkg"
+                        info "  Installed rebuilt better-sqlite3@$bsql3_version (Linux ELF)"
+                    else
+                        rm -rf "$bsql3_pkg"
+                        cp -a "$bsql3_src" "$bsql3_pkg"
+                        warn "  Rebuild produced no .node; installed raw npm version"
+                    fi
+                elif [ -n "$bsql3_src" ] && [ -d "$bsql3_src" ]; then
+                    rm -rf "$bsql3_pkg"
+                    cp -a "$bsql3_src" "$bsql3_pkg"
+                    info "  better-sqlite3 has no binding.gyp; installed npm prebuild"
+                fi
             else
-                warn "  Cannot prepare headers — installing better-sqlite3 with npm prebuild"
-                # Fallback: try npm install with scripts (may fail if ABI mismatches)
+                info "  Headers not available; installing better-sqlite3 from npm"
                 local bsql3_build="$WORK_DIR/bsql3-fallback"
                 rm -rf "$bsql3_build"
                 mkdir -p "$bsql3_build"
@@ -496,7 +521,6 @@ install_linux_platform_packages() {
                 if [ -d "$bsql3_src" ]; then
                     rm -rf "$bsql3_pkg"
                     cp -a "$bsql3_src" "$bsql3_pkg"
-                    info "  Installed better-sqlite3@$bsql3_version with npm prebuild (may not work)"
                 fi
             fi
         fi
