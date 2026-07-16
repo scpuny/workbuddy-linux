@@ -1,9 +1,9 @@
-# Release workflow — DEPRECATED
+# Release workflow
 #
-# Release builds have moved to ci.yml.
-# Push a tag and the CI workflow will build and publish automatically.
-#
-# Trigger: push a version tag (e.g. v5.2.5)
+# Triggered by pushing a tag matching v<semver>, e.g. v4.22.10.
+# Downloads the official WorkBuddy DMG (URL from GitHub Secret),
+# converts it to a Linux Electron app, builds a .deb package,
+# and publishes everything as a GitHub Release.
 name: Release
 
 on:
@@ -15,17 +15,186 @@ permissions:
   contents: write
 
 jobs:
-  redirect:
-    name: Release via CI
+  validate:
+    name: Validate tag
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      electron_version: ${{ steps.check.outputs.electron_version }}
     steps:
-      - run: |
-          echo "╔═══════════════════════════════════════════════════╗"
-          echo "║  Release builds have moved to .github/workflows/ci.yml     ║"
-          echo "║                                                   ║"
-          echo "║  Push a tag and the CI workflow will:             ║"
-          echo "║  1. Build the .deb package                        ║"
-          echo "║  2. Publish it as a GitHub Release                ║"
-          echo "╚═══════════════════════════════════════════════════╝"
-          echo ""
-          echo "See: https://github.com/${{ github.repository }}/actions/workflows/ci.yml"
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches package.json
+        id: check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -e 'console.log(require("./package.json").version)')"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "❌ Tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "✅ Tag v$TAG matches package.json"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          # Electron version from install.sh default
+          EV="$(grep 'ELECTRON_VERSION=' install.sh | head -1 | sed 's/.*:-\([^}]*\).*/\1/')"
+          echo "electron_version=${EV:-41.1.1}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build .deb package
+    runs-on: ubuntu-latest
+    needs: validate
+    defaults:
+      run:
+        shell: bash
+    env:
+      DMG_URL: ${{ secrets.DMG_DOWNLOAD_URL }}
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron
+      ELECTRON_HEADERS_URL: https://npmmirror.com/mirrors/electron
+      WORKBUDDY_INSTALL_DIR: ${{ github.workspace }}/workbuddy-app
+      APP_DIR: ${{ github.workspace }}/workbuddy-app
+      WORKBUDDY_ELECTRON_CACHE_DIR: ${{ github.workspace }}/.cache/electron
+      DIST_DIR: ${{ github.workspace }}/dist
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check DMG secret
+        run: |
+          if [ -z "$DMG_URL" ]; then
+            echo "❌ DMG_DOWNLOAD_URL secret is not set!"
+            echo ""
+            echo "Set it in: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "Value: the download URL of the official WorkBuddy Intel/x64 DMG"
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            bash ca-certificates curl unzip 7zip python3 make g++ pkg-config \
+            libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev \
+            dpkg-dev fakeroot desktop-file-utils \
+            nodejs npm
+
+      - name: Verify Node.js
+        run: |
+          echo "node $(node -v) / npm $(npm -v) / npx $(npx -v)"
+
+      - name: Download official WorkBuddy DMG
+        run: |
+          mkdir -p downloads
+          echo "Downloading DMG from $DMG_URL ..."
+          curl -L --fail --progress-bar -o downloads/workbuddy.dmg "$DMG_URL"
+          ls -lh downloads/workbuddy.dmg
+
+      - name: Build Linux app (install.sh)
+        run: |
+          bash install.sh downloads/workbuddy.dmg 2>&1
+
+      - name: Build .deb package
+        run: |
+          bash scripts/build-deb.sh 2>&1
+
+      - name: List artifacts
+        run: |
+          echo "=== dist/ contents ==="
+          ls -lhR dist/
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: |
+            dist/*.deb
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+          path: /tmp/release-artifacts
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VER="${{ needs.validate.outputs.version }}"
+          DEB_NAME="$(ls /tmp/release-artifacts/*.deb | head -1 | xargs basename)"
+          DEB_SIZE="$(du -h /tmp/release-artifacts/*.deb | cut -f1)"
+
+          cat > /tmp/release-notes.md <<EOF
+          ## WorkBuddy Linux v${VER}
+
+          **Unofficial Linux port** — .deb package for Debian/Ubuntu/Linux Mint.
+
+          ### 📦 Downloads
+
+          | File | Size |
+          |------|------|
+          | \`${DEB_NAME}\` | ${DEB_SIZE} |
+
+          ### 🚀 Install
+
+          ```bash
+          sudo dpkg -i ${DEB_NAME}
+          sudo apt-get install -f  # install missing dependencies
+          workbuddy                 # launch
+          ```
+
+          ### 🩺 Troubleshooting (white screen / blank window)
+
+          If the window opens but the content area is white:
+
+          ```bash
+          # 1. Check system health
+          workbuddy-debug --check
+
+          # 2. Try with GPU acceleration disabled
+          WB_DISABLE_GPU=1 workbuddy
+
+          # 3. Force X11 backend (if you're on Wayland)
+          WB_OZONE_PLATFORM=x11 workbuddy
+
+          # 4. Launch with terminal output to see errors
+          workbuddy-debug
+          ```
+
+          ### 🔧 Debug scripts
+
+          - \`workbuddy-debug\` — diagnostic launcher with system checks
+          - \`workbuddy-debug --check\` — check system without launching
+          - \`workbuddy-debug --x11\` — force X11 backend
+          - \`workbuddy-debug --gpu\` — disable GPU acceleration
+
+          To build from source instead, see the [README](https://github.com/${{ github.repository }}#readme).
+
+          ### ✅ What's changed
+
+          See the [commit log](${{ github.server_url }}/${{ github.repository }}/commits/v${VER}).
+          EOF
+          echo "notes_path=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${{ needs.validate.outputs.version }}"
+          gh release create "v${VER}" \
+            --title "WorkBuddy Linux v${VER}" \
+            --notes-file "${{ steps.notes.outputs.notes_path }}" \
+            /tmp/release-artifacts/*.deb \
+            /tmp/release-artifacts/SHA256SUMS
