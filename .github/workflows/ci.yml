@@ -4,6 +4,7 @@ name: CI
 on:
   push:
     branches: [main, master, develop, dev]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
     paths-ignore:
       - '**.md'
       - '.gitignore'
@@ -94,7 +95,7 @@ jobs:
   build-deb:
     name: Build .deb
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
     env:
       DMG_URL: ${{ secrets.DMG_DOWNLOAD_URL }}
       ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron
@@ -148,4 +149,61 @@ jobs:
           name: workbuddy-deb
           path: dist/*.deb
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+
+  publish:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-deb
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: workbuddy-deb
+          path: /tmp/release-artifacts
+
+      - name: Generate checksums
+        run: |
+          cd /tmp/release-artifacts
+          sha256sum *.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          DEB_NAME="$(ls /tmp/release-artifacts/*.deb | head -1 | xargs basename)"
+          DEB_SIZE="$(du -h /tmp/release-artifacts/*.deb | cut -f1)"
+          cat > /tmp/release-notes.md <<EOF
+          ## WorkBuddy Linux v${{ github.ref_name }}
+
+          **Unofficial Linux port** — .deb package for Debian/Ubuntu/Linux Mint.
+
+          ### 📦 Downloads
+
+          | File | Size |
+          |------|------|
+          | \`${DEB_NAME}\` | ${DEB_SIZE} |
+
+          ### 🚀 Install
+
+          \`\`\`bash
+          sudo dpkg -i ${DEB_NAME}
+          sudo apt-get install -f
+          workbuddy
+          \`\`\`
+
+          Built from commit \`${{ github.sha }}\`.
+          EOF
+          echo "notes_path=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG"             --title "WorkBuddy Linux ${TAG}"             --notes-file "${{ steps.notes.outputs.notes_path }}"             /tmp/release-artifacts/*.deb             /tmp/release-artifacts/SHA256SUMS
