@@ -121,7 +121,7 @@ purge_remaining_foreign_binaries() {
                 rm -f "$native_file"
                 ((removed++)) || true
                 ;;
-            *"PE32"*|*"PE32+"*|*"MS Windows"*)
+            *"PE32+"*|*"PE32"*|*"MS Windows"*)
                 warn "  Removing Windows PE binary: $native_file"
                 rm -f "$native_file"
                 ((removed++)) || true
@@ -177,15 +177,15 @@ build_native_module_fresh() {
     # Run rebuild in a subshell.  Use || to capture the exit code safely
     # under set -e (which is active via the caller's set -Eeuo pipefail).
     (
-        cd "$build_dir"
+        cd "$build_dir" || exit 1
         echo '{"private":true}' > package.json
 
         # Install the Electron npm package so @electron/rebuild can resolve the version.
         # (--ignore-scripts skips the runtime download — we already have it.)
-        npm install "electron@$ELECTRON_VERSION" --save-dev --ignore-scripts --no-audit --no-fund 2>&1 >/dev/null
+        npm install "electron@$ELECTRON_VERSION" --save-dev --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
 
         # Install the module's full source
-        npm install "$module_name@$module_version" --ignore-scripts --no-audit --no-fund 2>&1 >/dev/null
+        npm install "$module_name@$module_version" --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
 
         # Rebuild for the target Electron
         # If ELECTRON_HEADERS_DIR is set (extracted from runtime), use it directly.
@@ -297,7 +297,7 @@ refresh_npm_package() {
 
     info "  Refreshing platform package $package_name@$version"
     (
-        cd "$build_dir"
+        cd "$build_dir" || exit 1
         npm init -y >/dev/null 2>&1
         npm install "$package_name@$version" --no-audit --no-fund
     )
@@ -330,7 +330,7 @@ install_lydell_node_pty_linux() {
 
     info "  Installing $linux_pkg_name@$version"
     (
-        cd "$build_dir"
+        cd "$build_dir" || exit 1
         npm init -y >/dev/null 2>&1
         npm install "$linux_pkg_name@$version" --no-audit --no-fund 2>&1
     ) || {
@@ -367,7 +367,7 @@ install_cli_ripgrep_linux() {
 
     info "  Installing Linux ripgrep for CLI vendor"
     (
-        cd "$build_dir"
+        cd "$build_dir" || exit 1
         npm init -y >/dev/null 2>&1
         npm install @vscode/ripgrep --no-audit --no-fund 2>&1
     ) || {
@@ -445,7 +445,7 @@ install_linux_platform_packages() {
                 rm -rf "$build_dir"
                 mkdir -p "$build_dir"
                 (
-                    cd "$build_dir"
+                    cd "$build_dir" || exit 1
                     npm init -y >/dev/null 2>&1
                     npm install "$pkg_name@$version" --no-audit --no-fund 2>&1
                 ) || true
@@ -477,7 +477,7 @@ install_linux_platform_packages() {
             if [ -f "$headers_dir/.patched" ]; then
                 info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (auto-detected ABI)"
                 (
-                    cd "$bsql3_pkg"
+                    cd "$bsql3_pkg" || exit 1
                     npm_config_nodedir="$headers_dir" \
                         npx --yes node-gyp rebuild --release 2>&1
                 ) || warn "  Failed to rebuild better-sqlite3 (continuing with prebuild)"
@@ -488,7 +488,7 @@ install_linux_platform_packages() {
                 rm -rf "$bsql3_build"
                 mkdir -p "$bsql3_build"
                 (
-                    cd "$bsql3_build"
+                    cd "$bsql3_build" || exit 1
                     npm init -y >/dev/null 2>&1
                     npm install "better-sqlite3@$bsql3_version" --no-audit --no-fund 2>&1
                 ) || true

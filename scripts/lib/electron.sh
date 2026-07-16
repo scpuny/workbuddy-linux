@@ -84,7 +84,7 @@ extract_electron_headers() {
     # Create a tarball that mimics node-gyp's expected format
     info "  Packaging Electron headers from $found_dir"
     (
-        cd "$runtime_dir"
+        cd "$runtime_dir" || exit 1
         tar czf "$output_tarball" include/node/
     )
     info "  Created headers tarball: $output_tarball"
