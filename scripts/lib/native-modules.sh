@@ -244,14 +244,10 @@ rebuild_critical_modules() {
     local module_name module_version
 
     # --- Critical modules (build failure = continue with prebuilds) ---
-    # Electron v36+ no longer publishes separate node-*-headers.tar.gz,
-    # so attempting to rebuild from source against the ABI will likely
-    # fail due to missing headers.  We continue on failure here and rely
-    # on the Linux platform packages installed in Phase 4.
-    local -a critical_modules=(
-        "node-pty"
-        "better-sqlite3"
-    )
+    # node-pty and better-sqlite3 are handled in Phase 4 (platform packages
+    # and patched-header rebuild), so Phase 3 skips them to avoid wasting
+    # time on @electron/rebuild that will fail without published headers.
+    local -a critical_modules=()
 
     for module_name in "${critical_modules[@]}"; do
         module_version="$(read_module_version "$app_dir" "$module_name" 2>/dev/null || true)"
@@ -479,7 +475,7 @@ install_linux_platform_packages() {
                 prepare_patched_electron_headers "$headers_dir" || true
             fi
             if [ -f "$headers_dir/.patched" ]; then
-                info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (ABI=136)"
+                info "  Rebuilding better-sqlite3@$bsql3_version against patched headers (auto-detected ABI)"
                 (
                     cd "$bsql3_pkg"
                     npm_config_nodedir="$headers_dir" \
@@ -508,6 +504,61 @@ install_linux_platform_packages() {
 
     # Install Linux ripgrep for CLI vendor
     install_cli_ripgrep_linux "$app_dir"
+}
+# ---------------------------------------------------------------------------
+# verify_native_modules — sanity-check that critical native modules exist
+# and are Linux ELF binaries (not stale Mach-O/PE).
+# This is the last gate before declaring the rebuild complete.
+# ---------------------------------------------------------------------------
+verify_native_modules() {
+    local app_dir="$1"
+    local errors=0
+
+    # List of critical .node files we expect to be valid ELF on Linux
+    local -a checks=(
+        "$app_dir/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+        "$app_dir/node_modules/@lydell/node-pty/prebuilds/linux-x64/pty.node"
+    )
+
+    # Also check for node-pty (non-@lydell variant) as fallback
+    if [ -f "$app_dir/node_modules/node-pty/build/Release/pty.node" ]; then
+        checks+=("$app_dir/node_modules/node-pty/build/Release/pty.node")
+    fi
+
+    command -v file >/dev/null 2>&1 || { info "  (skip ELF check: 'file' command not available)"; return 0; }
+
+    for node_file in "${checks[@]}"; do
+        if [ ! -f "$node_file" ]; then
+            warn "  Missing native module: ${node_file#${app_dir}/}"
+            ((errors++)) || true
+            continue
+        fi
+        local desc
+        desc="$(file "$node_file" 2>/dev/null || true)"
+        case "$desc" in
+            *ELF*)
+                info "  OK: ${node_file#${app_dir}/}"
+                ;;
+            *Mach-O*)
+                warn "  STALE Mach-O binary: ${node_file#${app_dir}/}"
+                ((errors++)) || true
+                ;;
+            *PE32*|*"MS Windows"*)
+                warn "  STALE Windows binary: ${node_file#${app_dir}/}"
+                ((errors++)) || true
+                ;;
+            *)
+                warn "  Unknown format: ${node_file#${app_dir}/} — ${desc}"
+                ((errors++)) || true
+                ;;
+        esac
+    done
+
+    if [ "$errors" -gt 0 ]; then
+        warn "  Native module verification: ${errors} issue(s) found"
+    else
+        info "  Native module verification: all critical modules OK"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -548,7 +599,7 @@ rebuild_native_modules() {
     # Final verification
     info "Native modules AFTER rebuild:"
     native_module_report "$app_dir" >&2
-
+    verify_native_modules "$app_dir"
     info ""
     info "Native module rebuild complete."
 }

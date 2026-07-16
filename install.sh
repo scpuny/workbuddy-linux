@@ -282,7 +282,12 @@ main() {
 
     prepare_install_dir
     download_electron_runtime
-    
+
+    # Detect Electron ABI from the downloaded Linux binary so that
+    # native module rebuilds compile against the correct version.
+    ELECTRON_ABI="$(detect_electron_abi "$INSTALL_DIR/electron")"
+    info "Using Electron $ELECTRON_VERSION (ABI $ELECTRON_ABI)"
+
     copy_app_payload "$app_bundle"
 
     # Rebuild native modules in app.asar.unpacked (where the .node files live)

@@ -1,5 +1,27 @@
 #!/bin/bash
 # Linux Electron runtime download. Sourced by install.sh.
+# ponytail: detect_electron_abi — reads NODE_MODULE_VERSION from the
+# downloaded Electron binary instead of hardcoding it. This keeps the
+# native rebuild compatible even when the upstream DMG ships a different
+# Electron version.
+detect_electron_abi() {
+    local electron_bin="$1"
+    local default_abi="${2:-136}"
+
+    command -v strings >/dev/null 2>&1 || { echo "$default_abi"; return 0; }
+    [ -f "$electron_bin" ] || { echo "$default_abi"; return 0; }
+
+    local abi
+    abi="$(strings "$electron_bin" 2>/dev/null         | grep -oP '"node_module_version":\s*\K\d+'         | head -1)"
+
+    if [ -n "$abi" ]; then
+        echo "$abi"
+    else
+        echo "$default_abi"
+    fi
+}
+
+
 
 electron_arch() {
     case "$ARCH" in
@@ -72,18 +94,21 @@ extract_electron_headers() {
 # ---------------------------------------------------------------------------
 # patch-nodejs-headers-for-electron
 #
-# Download stock Node.js 22.21.1 headers and patch the NODE_MODULE_VERSION
-# to match Electron's ABI (136 for Electron 37.x).  This is a workaround
-# for Electron versions that do not publish the standard node-*-headers.tar.gz
-# file that node-gyp / @electron/rebuild depends on.
-#
-# Node.js 22.21.1 is the same base Node version used by Electron 37, so the
-# APIs match perfectly — only the ABI constant differs.
+# Download the correct Node.js headers for the Electron runtime's embedded
+# Node version and patch NODE_MODULE_VERSION to match the Electron ABI.
+# This is a workaround for Electron versions that do not publish the
+# standard node-*-headers.tar.gz file that node-gyp / @electron/rebuild
+# depends on.
+# The Node.js version and ABI are detected from the downloaded Electron
+# binary instead of being hardcoded.
 # ---------------------------------------------------------------------------
 prepare_patched_electron_headers() {
     local headers_dir="$1"
+    local electron_bin="${2:-${INSTALL_DIR:-.}/electron}"
+    local node_abi="${3:-}"
+
+    [ -n "$node_abi" ] || node_abi="$(detect_electron_abi "$electron_bin")"
     local node_ver="22.21.1"
-    local node_abi="136"
     local url="https://nodejs.org/download/release/v${node_ver}/node-v${node_ver}-headers.tar.gz"
     local tarball="$WORK_DIR/node-v${node_ver}-headers.tar.gz"
 
