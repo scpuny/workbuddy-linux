@@ -645,55 +645,89 @@ if (source.includes(marker)) {
     }
 
     // -----------------------------------------------------------------------
-    // Fix 5 (Linux): use native frame + hide custom title bar.
+    // Fix 5 (Linux): add native window controls via titleBarOverlay.
     //
-    // The upstream app renders its own custom title bar
-    // (#workbuddy-menubar-container) on non-macOS platforms, so
-    // on Linux we get TWO title bars: the app's custom one + the
-    // native frame (because frame: true gives us native controls).
-    // macOS hides the custom one via CSS:
+    // The upstream app renders its own custom title bar (#workbuddy-menubar-container)
+    // on non-macOS platforms. On macOS the app hides it via CSS:
     //   body[data-platform="mac"] #workbuddy-menubar-container { display: none; }
+    // On Windows the app uses frame:false + titleBarOverlay with proper padding.
+    // On Linux the app was setting frame:true (giving TWO title bars).
     //
-    // We take a different approach:
-    //   1. Change from frame: false to frame: true so the native
-    //      title bar provides minimize/maximize/close buttons.
-    //   2. After the window loads, inject CSS to hide the app's
-    //      duplicate custom title bar (#workbuddy-menubar-container).
+    // Instead we use the same approach as Windows:
+    //   1. frame: false (keep the custom title bar, no duplicate native frame)
+    //   2. titleBarOverlay with height/color/symbolColor matching Windows config
+    //   3. Inject CSS to add padding-right on the menubar for overlay buttons
     //
-    // titleBarOverlay is NOT used because it causes a blank/white
-    // window on certain Linux desktop environments (GNOME/KDE) with
-    // this Electron version.
+    // This gives us the app's custom menu bar with native window control buttons
+    // (minimize/maximize/close) overlaid on the right side.
     // -----------------------------------------------------------------------
-    var linuxFrameIdx = source.indexOf('...!isMac && !isWindows && { frame: false }');
+    var linuxFrameMarker = '...!isMac && !isWindows && { frame: true }';
+    var linuxFrameIdx = source.indexOf(linuxFrameMarker);
     if (linuxFrameIdx >= 0) {
         var closeConstructor = source.indexOf('\t\t});', linuxFrameIdx);
         if (closeConstructor >= 0 && closeConstructor < linuxFrameIdx + 200) {
-            // Step 1: change frame: false to frame: true
+            // Step 1: replace { frame: true } with Windows-style titleBarOverlay config
             source = source.slice(0, linuxFrameIdx) +
-                '...!isMac && !isWindows && { frame: true }' +
-                source.slice(linuxFrameIdx + '...!isMac && !isWindows && { frame: false }'.length);
-            // Step 2: inject CSS hiding code after the constructor close
-            // Recalculate closeConstructor because source length changed
-            var newFrameIdx = source.indexOf('...!isMac && !isWindows && { frame: true }');
+                '...!isMac && !isWindows && {\n' +
+                '\t\t\tframe: false,\n' +
+                '\t\t\ttitleBarOverlay: {\n' +
+                '\t\t\t\theight: 30,\n' +
+                '\t\t\t\tcolor: "#00000000",\n' +
+                '\t\t\t\tsymbolColor: "#ffffff"\n' +
+                '\t\t\t}\n' +
+                '\t\t}' +
+                source.slice(linuxFrameIdx + linuxFrameMarker.length);
+            // Step 2: inject CSS padding after constructor close
+            // Recalculate positions due to changed source length
+            var newFrameIdx = source.indexOf('...!isMac && !isWindows && {');
             var newClose = source.indexOf('\t\t});', newFrameIdx);
             var before = source.slice(0, newClose + 4);
             var after = source.slice(newClose + 4);
             var cssFix = '\n' +
-                '\t\t// wb-linux: hide duplicate custom title bar\n' +
+                '\t\t// wb-linux: add top bar padding for titleBarOverlay buttons\n' +
                 '\t\tif (process.platform === "linux") {\n' +
                 '\t\t\tthis.mainWindow.webContents.on("did-finish-load", () => {\n' +
-                '\t\t\t\tthis.mainWindow.webContents.insertCSS(\'#workbuddy-menubar-container { display: none !important; }\');\n' +
+                '\t\t\t\tthis.mainWindow.webContents.insertCSS(\'#workbuddy-menubar-container { padding-right: 138px; }\');\n' +
                 '\t\t\t});\n' +
                 '\t\t}';
             source = before + cssFix + after;
-            log('Fix 5: changed to frame: true + CSS injection for Linux title bar');
+            log('Fix 5: added titleBarOverlay for Linux window controls (like Windows)');
         } else {
             log('Fix 5 WARN: could not find constructor close after frame marker');
         }
     } else {
-        log('Fix 5: frame marker not found, skipping title bar fix');
+        log('Fix 5: frame:true marker not found, trying frame:false fallback');
+        // Fallback: if the upstream uses frame:false, just add titleBarOverlay
+        var oldMarker = '...!isMac && !isWindows && { frame: false }';
+        var oldIdx = source.indexOf(oldMarker);
+        if (oldIdx >= 0) {
+            var closeCtor = source.indexOf('\t\t});', oldIdx);
+            if (closeCtor >= 0 && closeCtor < oldIdx + 200) {
+                source = source.slice(0, oldIdx) +
+                    '...!isMac && !isWindows && {\n' +
+                    '\t\t\tframe: false,\n' +
+                    '\t\t\ttitleBarOverlay: {\n' +
+                    '\t\t\t\theight: 30,\n' +
+                    '\t\t\t\tcolor: "#00000000",\n' +
+                    '\t\t\t\tsymbolColor: "#ffffff"\n' +
+                    '\t\t\t}\n' +
+                    '\t\t}' +
+                    source.slice(oldIdx + oldMarker.length);
+                var nIdx = source.indexOf('...!isMac && !isWindows && {');
+                var nClose = source.indexOf('\t\t});', nIdx);
+                var b4 = source.slice(0, nClose + 4);
+                var af = source.slice(nClose + 4);
+                source = b4 + '\n' +
+                    '\t\t// wb-linux: add top bar padding for titleBarOverlay buttons\n' +
+                    '\t\tif (process.platform === "linux") {\n' +
+                    '\t\t\tthis.mainWindow.webContents.on("did-finish-load", () => {\n' +
+                    '\t\t\t\tthis.mainWindow.webContents.insertCSS(\'#workbuddy-menubar-container { padding-right: 138px; }\');\n' +
+                    '\t\t\t});\n' +
+                    '\t\t}' + af;
+                log('Fix 5: added titleBarOverlay for Linux (fallback from frame:false)');
+            }
+        }
     }
-    // -----------------------------------------------------------------------
     // Fix 6 (Linux): disable the "Check for Updates..." menu item and    // stub out the updateCheck / updateDownload / updateQuitAndInstall
     // RPCs. The upstream updater talks to the macOS ShipIt / Windows
     // Squirrel / NSIS installers which are not available on Linux, and
