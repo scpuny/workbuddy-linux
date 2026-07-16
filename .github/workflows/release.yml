@@ -83,9 +83,31 @@ jobs:
       - name: Download official WorkBuddy DMG
         run: |
           mkdir -p downloads
-          echo "Downloading DMG from $DMG_URL ..."
-          curl -L --fail --progress-bar -o downloads/workbuddy.dmg "$DMG_URL"
+          # Retry with fallback: the CDN may be slow from some runner regions
+          for attempt in 1 2 3; do
+            echo "Download attempt $attempt from DMG_URL ..."
+            if curl -L --fail --connect-timeout 60 --max-time 300 -o downloads/workbuddy.dmg "$DMG_URL" 2>/dev/null; then
+              echo "Downloaded from configured URL"
+              break
+            fi
+            if [ $attempt -eq 3 ]; then
+              # Last resort: try the public Tencent COS URL directly using known version
+              PKG_VER="$(node -e "console.log(require('./package.json').version)")"
+              PUBLIC_URL="https://download.codebuddy.cn/workbuddy/saas/darwin-x64/"
+              echo "Trying public CDN listing for version $PKG_VER ..."
+              LISTING="$(curl -sL --connect-timeout 30 "$PUBLIC_URL" 2>/dev/null || true)"
+              DMG_FILE="$(echo "$LISTING" | grep -oP "WorkBuddy-darwin-x64-${PKG_VER//./\.}\.[0-9]+-[a-f0-9]+\.dmg" | sort -V | tail -1 || true)"
+              if [ -n "$DMG_FILE" ]; then
+                echo "Found DMG on public CDN: $DMG_FILE"
+                curl -L --fail --connect-timeout 60 --max-time 300 -o downloads/workbuddy.dmg "${PUBLIC_URL}${DMG_FILE}"
+                break
+              fi
+            fi
+            echo "Retrying in 10s ..."
+            sleep 10
+          done
           ls -lh downloads/workbuddy.dmg
+          test -f downloads/workbuddy.dmg && file downloads/workbuddy.dmg | grep -q "diskimage" && echo "DMG verified" || { echo "DMG download failed"; exit 1; }
 
       - name: Build Linux app (install.sh)
         run: |
