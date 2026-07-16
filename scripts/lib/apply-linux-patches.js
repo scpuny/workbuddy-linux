@@ -275,15 +275,6 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
           var env = patched.env;
           if (env && typeof env === "object") {
             try { env.ELECTRON_DISABLE_SANDBOX = "1"; } catch (_) {}
-            // In ELECTRON_RUN_AS_NODE=1 mode, chrome-level flags like
-            // --no-sandbox are NOT parsed.  We must disable the V8
-            // sandbox through NODE_OPTIONS.
-            if (env.ELECTRON_RUN_AS_NODE === "1") {
-              var no = env.NODE_OPTIONS || "";
-              if (no.indexOf("--no-node-sandbox") < 0) {
-                try { env.NODE_OPTIONS = (no ? no + " " : "") + "--no-node-sandbox"; } catch (_) {}
-              }
-            }
           }
           // Is this spawn targetting the Electron binary?
           var isElectron = (command === process.execPath)
