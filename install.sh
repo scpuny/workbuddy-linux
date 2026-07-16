@@ -9,6 +9,7 @@ ELECTRON_VERSION="${ELECTRON_VERSION:-41.1.1}"
 ELECTRON_HEADERS_URL="${ELECTRON_HEADERS_URL:-${npm_config_disturl:-${NPM_CONFIG_DISTURL:-https://npmmirror.com/mirrors/electron}}}"
 ELECTRON_MIRROR="${ELECTRON_MIRROR:-}"
 WORK_DIR="$(mktemp -d)"
+# shellcheck disable=SC2034 # used by sourced modules (electron.sh, native-modules.sh)
 ARCH="$(uname -m)"
 PROVIDED_INPUT=""
 FRESH=0

@@ -7,7 +7,7 @@ set -Eeuo pipefail
 BASE_URL="${UPSTREAM_CHECK_URL:-https://download.codebuddy.cn/workbuddy/saas/darwin-x64/}"
 
 main() {
-  local content detected current
+  local content detected
 
   info "Checking upstream at: $BASE_URL"
 
@@ -21,9 +21,9 @@ main() {
     # Fallback: try HEAD request on a known version URL pattern
     warn "Directory listing not available, trying known URL patterns..."
     # Try a few recent versions via HEAD
-    for ver in "5.3.0" "5.2.5" "5.2.0" "4.23.0" "4.22.10"; do
+    for probe in "5.3.0" "5.2.5" "5.2.0" "4.23.0" "4.22.10"; do
       # The CDN might not have directory listing, so we just log
-      info "  Could not detect version via directory listing"
+      info "  Probed version: ${probe}"
     done
     echo "unknown"
     exit 0
