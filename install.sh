@@ -309,6 +309,38 @@ main() {
     # window actually opens and the tray right-click menu is populated.
     apply_linux_runtime_patches "$INSTALL_DIR"
 
+    # Install system Node.js-compatible native modules for daemon.
+    # The daemon runs with system Node.js (not Electron) to avoid SIGTRAP
+    # from Chrome sandbox init, so native modules must be compiled for
+    # system Node.js ABI, not Electron ABI.
+    local daemon_nm="$INSTALL_DIR/.workbuddy-linux/daemon-main/node_modules"
+    if [ -d "$daemon_nm" ]; then
+        info "Installing better-sqlite3 for system Node.js daemon..."
+        local bsqlite_work="$(mktemp -d)"
+        (
+            cd "$bsqlite_work"
+            npm init -y >/dev/null 2>&1
+            npm install better-sqlite3@12.8.0 --no-audit --no-fund --legacy-peer-deps --silent 2>&1
+        ) || warn "Failed to install daemon native modules"
+        # Overlay better-sqlite3 and its deps into daemon node_modules.
+        # IMPORTANT: daemon-main/node_modules already has 39+ npm packages
+        # extracted from app.asar by the patcher. We must NOT replace them;
+        # we only need to overlay better-sqlite3 compiled for system Node.js
+        # (the asar version was compiled for Electron ABI and won't load).
+        local overlay_pkgs
+        overlay_pkgs="$(ls "$bsqlite_work/node_modules/" 2>/dev/null)"
+        for pkg in $overlay_pkgs; do
+            local src="$bsqlite_work/node_modules/$pkg"
+            local dst="$daemon_nm/$pkg"
+            if [ -d "$src" ]; then
+                rm -rf "$dst"
+                cp -a "$src" "$dst"
+            fi
+        done
+        rm -rf "$bsqlite_work"
+        info "Daemon native modules installed"
+    fi
+
     write_icon "$app_bundle"
     write_launcher
     write_desktop_entry

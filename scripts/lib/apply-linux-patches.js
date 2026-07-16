@@ -63,6 +63,97 @@ function log(msg) { console.log('  [apply-linux-patches] ' + msg); }
 //    Unpacked entries are copied from the sibling <asar>.unpacked/ dir.
 // ---------------------------------------------------------------------------
 const { header } = asar.getRawHeader(asarPath);
+
+    // --- Extract daemon-main for system Node.js daemon ---
+    try {
+        var maintDir = path.join(path.dirname(asarPath), '..', '.workbuddy-linux', 'daemon-main');
+        if (!fs.existsSync(maintDir)) {
+            fs.mkdirSync(maintDir, { recursive: true });
+            var mh = header.files.main.files;
+            var ec = 0;
+            (function ex(n, p) {
+                for (var k in n) {
+                    var e = n[k], r = p ? p + '/' + k : k, a = path.join(maintDir, r);
+                    if (e.files) { fs.mkdirSync(a, { recursive: true }); ex(e.files, r); }
+                    else if (e.link) { try { fs.symlinkSync(e.link, a); } catch(_) {} }
+                    else {
+                        fs.mkdirSync(path.dirname(a), { recursive: true });
+                        var buf = asar.extractFile(asarPath, 'main/' + r);
+                        if (buf && buf.length > 0) fs.writeFileSync(a, buf);
+                        ec++;
+                    }
+                }
+            })(mh, '');
+            log('extracted ' + ec + ' main/ files to ' + maintDir);
+        }
+    } catch (exErr) { log('WARN: daemon-main extraction: ' + exErr.message); }
+
+    // --- Extract npm dependencies for daemon ---
+    try {
+        var dnmd = path.join(path.dirname(asarPath), '..', '.workbuddy-linux', 'daemon-main', 'node_modules');
+        var nmh = header.files.node_modules && header.files.node_modules.files;
+        if (nmh) {
+            var pkgs = [
+                '@larksuiteoapi', '@wecom', '@protobufjs',
+                'axios', 'lodash.identity', 'lodash.merge', 'lodash.pickby',
+                'protobufjs', 'qs', 'eventemitter3', 'ws',
+                'follow-redirects', 'form-data', 'proxy-from-env',
+                'asynckit', 'combined-stream', 'delayed-stream',
+                'mime-types', 'mime-db',
+                'es-set-tostringtag', 'hasown', 'long',
+                'call-bind-apply-helpers', 'call-bound', 'dunder-proto',
+                'es-define-property', 'es-errors', 'es-object-atoms',
+                'function-bind', 'get-intrinsic', 'get-proto',
+                'gopd', 'has-symbols', 'has-tostringtag',
+                'math-intrinsics', 'object-inspect',
+                'side-channel', 'side-channel-list',
+                'side-channel-map', 'side-channel-weakmap'
+            ];
+            fs.mkdirSync(dnmd, { recursive: true });
+            var en = 0;
+            pkgs.forEach(function (pn) {
+                var pnNode = nmh[pn];
+                if (pnNode && pnNode.files) {
+                    var td = path.join(dnmd, pn);
+                    if (fs.existsSync(path.join(td, 'package.json'))) { en++; return; }
+                    (function ex(n, p) {
+                        for (var k in n) {
+                            var e = n[k], r = p ? p + '/' + k : k, a = path.join(td, r);
+                            if (e.files) { if (!fs.existsSync(a)) fs.mkdirSync(a, { recursive: true }); ex(e.files, r); }
+                            else if (e.link) { try { fs.symlinkSync(e.link, a); } catch(_) {} }
+                            else {
+                                fs.mkdirSync(path.dirname(a), { recursive: true });
+                                var buf = asar.extractFile(asarPath, 'node_modules/' + pn + '/' + r);
+                                if (buf && buf.length > 0) fs.writeFileSync(a, buf);
+                            }
+                        }
+                    })(pnNode.files, '');
+                    en++;
+                }
+            });
+            log('extracted ' + en + ' npm packages to daemon-main/node_modules');
+        }
+    } catch (nmErr) { log('WARN: daemon node_modules extraction: ' + nmErr.message); }
+
+    // --- Create bootstrap file ---
+    try {
+        var bsp = path.join(path.dirname(asarPath), '..', '.workbuddy-linux', 'daemon-main', '__wb_bootstrap.js');
+        if (!fs.existsSync(bsp)) {
+            var rdir = path.resolve(path.dirname(path.dirname(asarPath)), 'resources');
+            fs.writeFileSync(bsp, [
+                '// WorkBuddy Linux daemon bootstrap',
+                'var p = require("path");',
+                'Object.defineProperty(process, "resourcesPath", {',
+                '  value: ' + JSON.stringify(rdir) + ',',
+                '  writable: false, configurable: false, enumerable: true',
+                '});',
+                'try { process.env.ELECTRON_RESOURCES_PATH = ' + JSON.stringify(rdir) + '; } catch(_) {}',
+                ''
+            ].join('\n'));
+            log('created daemon bootstrap: ' + bsp);
+        }
+    } catch (bsErr) { log('WARN: daemon bootstrap: ' + bsErr.message); }
+
 const unpackedSiblingDir = asarPath + '.unpacked';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-asar-patch-'));
 process.on('exit', () => {
@@ -287,11 +378,45 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
           // sandbox BEFORE switching to Node.js mode, so the flag must
           // be present in argv regardless of the runtime mode.
           if (isElectron && Array.isArray(args)) {
-            // Prepend mandatory flags that prevent sandbox/V8 crashes.
-            // We use a Set to avoid duplicates.
-            // NOTE: in ELECTRON_RUN_AS_NODE=1 mode, these flags cause
-            // "bad option" errors, so we skip them for that mode.
-            if (!env || env.ELECTRON_RUN_AS_NODE !== "1") {
+            if (env && env.ELECTRON_RUN_AS_NODE === "1") {
+              // DAEMON SPAWN: ELECTRON_RUN_AS_NODE=1 + Chrome sandbox init
+              // = SIGTRAP. --no-sandbox in args causes "bad option" in
+              // Node.js mode. Fix: use system Node.js + extracted dir.
+              try {
+                var electronDir = pathMod.dirname(process.execPath);
+                var daemonMain = pathMod.join(electronDir, ".workbuddy-linux", "daemon-main");
+                if (fsMod.existsSync(daemonMain)) {
+                  command = (function(){
+                    try {
+                      var r = cp.spawnSync("command", ["-v", "node"], {encoding:"utf8"});
+                      if (r.status===0 && r.stdout) return r.stdout.trim();
+                    } catch(_){}
+                    try { if (fsMod.existsSync("/usr/bin/node")) return "/usr/bin/node"; } catch(_){}
+                    try { if (fsMod.existsSync("/usr/local/bin/node")) return "/usr/local/bin/node"; } catch(_){}
+                    return "node";
+                  })();
+                  args[0] = args[0].replace(
+                    pathMod.join("resources", "app.asar", "main"),
+                    pathMod.join(".workbuddy-linux", "daemon-main")
+                  );
+                  try { delete env.ELECTRON_RUN_AS_NODE; } catch (_) {}
+                  try { delete env.ELECTRON_DISABLE_SANDBOX; } catch (_) {}
+                  // NODE_PATH to find extracted npm packages
+                  try {
+                    var np = [];
+                    var enm = pathMod.join(electronDir, ".workbuddy-linux", "daemon-main", "node_modules");
+                    if (fsMod.existsSync(enm)) np.push(enm);
+                    if (np.length > 0) { env.NODE_PATH = np.join(":"); }
+                  } catch(_) {}
+                  // Bootstrap for process.resourcesPath
+                  try {
+                    var bp = pathMod.join(electronDir, ".workbuddy-linux", "daemon-main", "__wb_bootstrap.js");
+                    if (fsMod.existsSync(bp)) { args = ["-r", bp].concat(args); }
+                  } catch(_) {}
+                }
+              } catch(_) {}
+            } else {
+              // Normal Electron spawns: inject sandbox-disabling flags.
               var mandatory = ["--no-sandbox", "--disable-v8-sandbox", "--no-zygote"];
               for (var fi = mandatory.length - 1; fi >= 0; fi--) {
                 if (args.indexOf(mandatory[fi]) < 0) {
@@ -459,6 +584,11 @@ const SHIM_BODY = `// ${marker} — WorkBuddy Linux runtime patches (env + tray)
 })();
 `;
 
+// Remove any previously injected shim
+source = source.replace(
+    /\/\/ __WB_LINUX_PATCHES_V\d+__ — WorkBuddy Linux runtime patches[\s\S]*?\(function wbLinuxEnvShim\(\)[\s\S]*?\)\(\);\n/g,
+    ''
+);
 if (source.includes(marker)) {
     log('marker already present in main/index.js; skipping source patch');
 } else {
@@ -515,27 +645,54 @@ if (source.includes(marker)) {
     }
 
     // -----------------------------------------------------------------------
-    // Fix 5 (Linux): add window control buttons (minimize/maximize/close).
+    // Fix 5 (Linux): use native frame + hide custom title bar.
     //
-    // Upstream sets `frame: false` on Linux without providing a
-    // titleBarOverlay (Windows gets one, macOS uses traffic lights).
-    // Electron's titleBarOverlay only works on Wayland, not X11.
-    // On Linux we keep frame: true and instead push the custom window
-    // header content down so it doesn't overlap the native title bar.
-    // This gives the user working minimize/maximize/close buttons via
-    // the window manager, which is more reliable than trying to inject
-    // JS buttons into the renderer's isolated world.
+    // The upstream app renders its own custom title bar
+    // (#workbuddy-menubar-container) on non-macOS platforms, so
+    // on Linux we get TWO title bars: the app's custom one + the
+    // native frame (because frame: true gives us native controls).
+    // macOS hides the custom one via CSS:
+    //   body[data-platform="mac"] #workbuddy-menubar-container { display: none; }
+    //
+    // We take a different approach:
+    //   1. Change from frame: false to frame: true so the native
+    //      title bar provides minimize/maximize/close buttons.
+    //   2. After the window loads, inject CSS to hide the app's
+    //      duplicate custom title bar (#workbuddy-menubar-container).
+    //
+    // titleBarOverlay is NOT used because it causes a blank/white
+    // window on certain Linux desktop environments (GNOME/KDE) with
+    // this Electron version.
     // -----------------------------------------------------------------------
-    const linuxFrameMarker = '...!isMac && !isWindows && { frame: false }';
-    const linuxFrameIdx = source.indexOf(linuxFrameMarker);
+    var linuxFrameIdx = source.indexOf('...!isMac && !isWindows && { frame: false }');
     if (linuxFrameIdx >= 0) {
-        // Replace `{ frame: false }` with `{ frame: true }` on Linux so
-        // the window manager provides native minimize/maximize/close buttons.
-        const before = source.slice(0, linuxFrameIdx);
-        const after = source.slice(linuxFrameIdx + linuxFrameMarker.length);
-        source = before + '...!isMac && !isWindows && { frame: true }' + after;
+        var closeConstructor = source.indexOf('\t\t});', linuxFrameIdx);
+        if (closeConstructor >= 0 && closeConstructor < linuxFrameIdx + 200) {
+            // Step 1: change frame: false to frame: true
+            source = source.slice(0, linuxFrameIdx) +
+                '...!isMac && !isWindows && { frame: true }' +
+                source.slice(linuxFrameIdx + '...!isMac && !isWindows && { frame: false }'.length);
+            // Step 2: inject CSS hiding code after the constructor close
+            // Recalculate closeConstructor because source length changed
+            var newFrameIdx = source.indexOf('...!isMac && !isWindows && { frame: true }');
+            var newClose = source.indexOf('\t\t});', newFrameIdx);
+            var before = source.slice(0, newClose + 4);
+            var after = source.slice(newClose + 4);
+            var cssFix = '\n' +
+                '\t\t// wb-linux: hide duplicate custom title bar\n' +
+                '\t\tif (process.platform === "linux") {\n' +
+                '\t\t\tthis.mainWindow.webContents.on("did-finish-load", () => {\n' +
+                '\t\t\t\tthis.mainWindow.webContents.insertCSS(\'#workbuddy-menubar-container { display: none !important; }\');\n' +
+                '\t\t\t});\n' +
+                '\t\t}';
+            source = before + cssFix + after;
+            log('Fix 5: changed to frame: true + CSS injection for Linux title bar');
+        } else {
+            log('Fix 5 WARN: could not find constructor close after frame marker');
+        }
+    } else {
+        log('Fix 5: frame marker not found, skipping title bar fix');
     }
-
     // -----------------------------------------------------------------------
     // Fix 6 (Linux): disable the "Check for Updates..." menu item and    // stub out the updateCheck / updateDownload / updateQuitAndInstall
     // RPCs. The upstream updater talks to the macOS ShipIt / Windows
@@ -615,6 +772,11 @@ if (source.includes(marker)) {
 const sidecarEntryPath = path.join(tmpDir, 'main', 'sidecar-entry.js');
 if (fs.existsSync(sidecarEntryPath)) {
     let sidecarSource = fs.readFileSync(sidecarEntryPath, 'utf8');
+    // Remove previously injected shim from sidecar
+    sidecarSource = sidecarSource.replace(
+        /\/\/ __WB_LINUX_PATCHES_V\d+__ — WorkBuddy Linux runtime patches[\s\S]*?\(function wbLinuxEnvShim\(\)[\s\S]*?\)\(\);\n/g,
+        ''
+    );
     if (!sidecarSource.includes(marker)) {
         sidecarSource = SHIM_BODY + sidecarSource;
         fs.writeFileSync(sidecarEntryPath, sidecarSource);
